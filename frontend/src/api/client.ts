@@ -1,30 +1,57 @@
 function join(base: string, path: string) {
-  const b = base.endsWith('/') ? base.slice(0, -1) : base
-  return `${b}${path}`
+  const b = base.endsWith("/") ? base.slice(0, -1) : base;
+  return `${b}${path}`;
 }
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE ?? 'https://ai.krrishna.online'
+const API_BASE =
+  (import.meta as any).env?.VITE_API_BASE ?? "https://ai.krrishna.online";
 
-export async function postChat(prompt: string) {
-  const res = await fetch(join(API_BASE, `/chat?prompt=${encodeURIComponent(prompt)}`), {
-    method: 'POST'
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
+async function handleStream(
+  res: Response,
+  onProgress?: (text: string) => void,
+) {
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const reader = res.body?.getReader();
+  const decoder = new TextDecoder();
+  let fullText = "";
+  let buffer = "";
+
+  if (reader) {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.response) {
+            fullText += parsed.response;
+            if (onProgress) onProgress(fullText);
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+  }
+  return fullText;
 }
 
-export async function postCode(prompt: string) {
-  const res = await fetch(join(API_BASE, `/code?prompt=${encodeURIComponent(prompt)}`), {
-    method: 'POST'
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
-}
-
-export async function postEmbedding(text: string) {
-  const res = await fetch(join(API_BASE, `/embedding?text=${encodeURIComponent(text)}`), {
-    method: 'POST'
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
+export async function postGenerate(
+  prompt: string,
+  onProgress?: (text: string) => void,
+) {
+  const res = await fetch(
+    join(API_BASE, "/generate"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    },
+  );
+  return handleStream(res, onProgress);
 }

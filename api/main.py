@@ -1,8 +1,12 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import requests
-from fastapi.responses import JSONResponse
+import json
+from fastapi.responses import JSONResponse, StreamingResponse
+from guardrails import Guard
+from guardrails.hub import RestrictToTopic, ToxicLanguage
+from pydantic import BaseModel
 
 app = FastAPI()
 
@@ -15,75 +19,54 @@ app.add_middleware(
 )
 
 OLLAMA_URL = "http://ollama:11434/api/generate"
-EMBED_URL = "http://ollama:11434/api/embeddings"
-CHAT_MODEL = os.getenv("CHAT_MODEL", "mistral")
-CODE_MODEL = os.getenv("CODE_MODEL", "qwen2.5-coder:7b")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
+MODEL = os.getenv("MODEL", "llama3.1:8b")
 
+# Request schema
+class GenerateRequest(BaseModel):
+    prompt: str
+
+
+
+# Define safety guard for prompt injections / toxic inputs
+toxic_guard = Guard().use(
+    ToxicLanguage(threshold=0.8, validation_method="sentence", pass_on_invalid=True)
+)
+
+# Optional: Ensure output stays on tech/general topics for chat
+# topic_guard = Guard().use(RestrictToTopic(valid_topics=["technology", "programming", "general assistance"]))
 
 @app.get("/")
 def home():
-    return {"message": "AI Platform Running"}
+    return {"message": "AI Platform Running with Guardrails"}
 
 
-# Chat endpoint
-@app.post("/chat")
-def chat(prompt: str):
+# Unified generation endpoint
+@app.post("/generate")
+def generate(req: GenerateRequest):
+    try:
+        toxic_guard.validate(req.prompt)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Input violates safety guidelines (toxicity/abuse detected).")
 
-    response = requests.post(
-        OLLAMA_URL,
-        json={
-            "model": CHAT_MODEL,
-            "prompt": prompt,
-            "stream": False
-        }
-    )
+    def stream():
+        response = requests.post(
+            OLLAMA_URL,
+            json={"model": MODEL, "prompt": req.prompt, "stream": True},
+            stream=True
+        )
+        for chunk in response.iter_content(chunk_size=1024):
+            if chunk:
+                yield chunk
 
-    if response.ok:
-        return response.json()
-    return JSONResponse(status_code=response.status_code, content={"error": "ollama_error", "detail": response.text})
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
 
-
-# Coding endpoint
-@app.post("/code")
-def code(prompt: str):
-
-    response = requests.post(
-        OLLAMA_URL,
-        json={
-            "model": CODE_MODEL,
-            "prompt": prompt,
-            "stream": False
-        }
-    )
-
-    if response.ok:
-        return response.json()
-    return JSONResponse(status_code=response.status_code, content={"error": "ollama_error", "detail": response.text})
-
-
-# Embedding endpoint
-@app.post("/embedding")
-def embedding(text: str):
-
-    response = requests.post(
-        EMBED_URL,
-        json={
-            "model": EMBED_MODEL,
-            "prompt": text
-        }
-    )
-
-    if response.ok:
-        return response.json()
-    return JSONResponse(status_code=response.status_code, content={"error": "ollama_error", "detail": response.text})
 
 @app.get("/health")
 def health():
     try:
         r = requests.get("http://ollama:11434/api/tags", timeout=5)
         models = set([m.get("name") for m in r.json().get("models", [])])
-        required = {CHAT_MODEL, CODE_MODEL, EMBED_MODEL}
+        required = {MODEL}
         missing = list(required - models)
         return {"ok": True, "missing_models": missing, "models": list(models)}
     except Exception as e:
