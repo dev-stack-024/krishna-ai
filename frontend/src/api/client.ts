@@ -4,7 +4,7 @@ function join(base: string, path: string) {
 }
 
 const API_BASE =
-  (import.meta as any).env?.VITE_API_BASE ?? "https://ai.krrishna.online";
+  (import.meta as any).env?.VITE_API_BASE ?? "https://ai-api.krrishna.online";
 
 async function handleStream(
   res: Response,
