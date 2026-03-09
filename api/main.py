@@ -1,11 +1,9 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import requests
 import json
 from fastapi.responses import JSONResponse, StreamingResponse
-from guardrails import Guard
-from guardrails.hub import RestrictToTopic, ToxicLanguage
 from pydantic import BaseModel
 
 app = FastAPI()
@@ -27,27 +25,14 @@ class GenerateRequest(BaseModel):
 
 
 
-# Define safety guard for prompt injections / toxic inputs
-toxic_guard = Guard().use(
-    ToxicLanguage(threshold=0.8, validation_method="sentence", pass_on_invalid=True)
-)
-
-# Optional: Ensure output stays on tech/general topics for chat
-# topic_guard = Guard().use(RestrictToTopic(valid_topics=["technology", "programming", "general assistance"]))
-
 @app.get("/")
 def home():
-    return {"message": "AI Platform Running with Guardrails"}
+    return {"message": "AI Platform Running"}
 
 
 # Unified generation endpoint
 @app.post("/generate")
 def generate(req: GenerateRequest):
-    try:
-        toxic_guard.validate(req.prompt)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="Input violates safety guidelines (toxicity/abuse detected).")
-
     def stream():
         response = requests.post(
             OLLAMA_URL,
