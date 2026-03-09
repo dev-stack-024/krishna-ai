@@ -17,7 +17,8 @@ app.add_middleware(
 )
 
 OLLAMA_URL = "http://ollama:11434/api/generate"
-MODEL = os.getenv("MODEL", "llama3.1:8b")
+MODEL = os.getenv("MODEL", "qwen3.5:latest")
+# MODEL = os.getenv("MODEL", "llama3.1:8b")
 
 # Request schema
 class GenerateRequest(BaseModel):
